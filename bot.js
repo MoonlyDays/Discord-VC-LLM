@@ -1,15 +1,13 @@
 import 'dotenv/config';
 
-import { Client, GatewayIntentBits } from 'discord.js';
-import { createAudioPlayer, createAudioResource, EndBehaviorType, joinVoiceChannel } from '@discordjs/voice';
-import { Readable } from 'stream';
-import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
+import {Client, GatewayIntentBits} from 'discord.js';
+import {createAudioPlayer, createAudioResource, EndBehaviorType, joinVoiceChannel} from '@discordjs/voice';
+import {Readable} from 'stream';
+import {ElevenLabsClient} from '@elevenlabs/elevenlabs-js';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
 import prism from 'prism-media';
-import { exec } from 'child_process';
 import OpenAI from 'openai';
-
 
 const elevenLabs = new ElevenLabsClient();
 const chatGpt = new OpenAI({
@@ -27,22 +25,6 @@ const client = new Client({
     ]
 });
 
-// Call the command registration script
-exec(
-    `node ./registerCommands.js`,
-    (error, stdout, stderr) => {
-        if (error) {
-            logToConsole(`Error registering commands: ${error.message}`, 'error', 1);
-            return;
-        }
-        if (stderr) {
-            logToConsole(`Error output: ${stderr}`, 'error', 1);
-            return;
-        }
-        logToConsole(`Command registration output: ${stdout}`, 'info', 2);
-    }
-);
-
 const TOKEN = process.env.DISCORD_TOKEN;
 const botNames = process.env.BOT_TRIGGERS.split(',');
 if (!Array.isArray(botNames)) {
@@ -52,8 +34,6 @@ if (!Array.isArray(botNames)) {
 
 logToConsole(`Bot triggers: ${botNames}`, 'info', 1);
 let chatHistory = {};
-let threadMemory = {};
-
 let allowWithoutBip = false;
 let currentlyThinking = false;
 
@@ -242,19 +222,36 @@ function convertAndHandleFile(filePath, userid, connection, channel) {
         .save(mp3Path)
         .on('end', () => {
             logToConsole(`> Converted to MP3: ${mp3Path}`, 'info', 2);
-            sendAudioToAPI(mp3Path, userid, connection, channel).then();
+            sendAudioToApi(mp3Path, userid, connection, channel).then();
         });
 }
 
-async function sendAudioToAPI(fileName, userId, connection, channel) {
-    const fileBuffer = await fs.promises.readFile(fileName);
-    const audioBlob = new Blob([fileBuffer], { type: 'audio/mp3' });
+async function getAudioDuration(filePath) {
+    return new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(filePath, (err, metadata) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(metadata.format.duration);
+        });
+    });
+}
+
+async function sendAudioToApi(fileName, userId, connection, channel) {
+    const duration = await getAudioDuration(fileName);
+    if (duration < 2) {
+        logToConsole(`> Audio too short (${duration}), ignoring`, 'info', 2);
+        restartListening(userId, connection, channel);
+        return;
+    }
+
+    console.log(`duration: ${duration} seconds`);
 
     try {
-        const response = await elevenLabs.speechToText.convert({
-            file: audioBlob,
-            modelId: 'scribe_v1',
-            languageCode: process.env.LANGUAGE
+        const response = await chatGpt.audio.transcriptions.create({
+            file: fs.createReadStream(fileName),
+            model: 'whisper-1'
         });
 
         let transcription = response.text;
