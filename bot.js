@@ -375,7 +375,7 @@ async function sendToChatGPT(transcription, userId, connection, channel) {
 let audioQueue = [];
 
 async function sendToTTS(text, userid, connection, channel) {
-    const words = text.split(' ').replace('*', '');
+    const words = text.replace('*', '').split(' ');
     const maxChunkSize = 60; // Maximum words per chunk
     const punctuationMarks = ['.', '!', '?', ';', ':']; // Punctuation marks to look for
     const chunks = [];
